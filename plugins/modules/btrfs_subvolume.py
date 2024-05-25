@@ -4,10 +4,11 @@
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from __future__ import (absolute_import, division, print_function)
+from __future__ import absolute_import, division, print_function
+
 __metaclass__ = type
 
-DOCUMENTATION = r'''
+DOCUMENTATION = r"""
 ---
 module: btrfs_subvolume
 short_description: Manage btrfs subvolumes
@@ -95,9 +96,9 @@ attributes:
 
 author:
     - Gregory Furlong (@gnfzdz)
-'''
+"""
 
-EXAMPLES = r'''
+EXAMPLES = r"""
 
 - name: Create a @home subvolume under the root subvolume
   community.general.btrfs_subvolume:
@@ -137,9 +138,9 @@ EXAMPLES = r'''
     recursive: True
     device: /dev/vda2
 
-'''
+"""
 
-RETURN = r'''
+RETURN = r"""
 
 filesystem:
     description:
@@ -205,27 +206,33 @@ target_subvolume_id:
     type: int
     sample: 257
     returned: Success and subvolume exists after module execution
-'''
+"""
 
-from ansible_collections.community.general.plugins.module_utils.btrfs import BtrfsFilesystemsProvider, BtrfsCommands, BtrfsModuleException
-from ansible_collections.community.general.plugins.module_utils.btrfs import normalize_subvolume_path
-from ansible.module_utils.basic import AnsibleModule
+from ansible_collections.community.general.plugins.module_utils.btrfs import (
+    BtrfsFilesystemsProvider,
+    BtrfsCommands,
+    BtrfsModuleException,
+    BtrfsFilesystem,
+)
+from ansible_collections.community.general.plugins.module_utils.btrfs import (
+    normalize_subvolume_path,
+)
+from ansible.module_utils.basic import AnsibleModule  # type: ignore
 import os
 import tempfile
 
 
 class BtrfsSubvolumeModule(object):
-
-    __BTRFS_ROOT_SUBVOLUME = '/'
+    __BTRFS_ROOT_SUBVOLUME = "/"
     __BTRFS_ROOT_SUBVOLUME_ID = 5
     __BTRFS_SUBVOLUME_INODE_NUMBER = 256
 
-    __CREATE_SUBVOLUME_OPERATION = 'create'
-    __CREATE_SNAPSHOT_OPERATION = 'snapshot'
-    __DELETE_SUBVOLUME_OPERATION = 'delete'
-    __SET_DEFAULT_SUBVOLUME_OPERATION = 'set-default'
+    __CREATE_SUBVOLUME_OPERATION = "create"
+    __CREATE_SNAPSHOT_OPERATION = "snapshot"
+    __DELETE_SUBVOLUME_OPERATION = "delete"
+    __SET_DEFAULT_SUBVOLUME_OPERATION = "set-default"
 
-    __UNKNOWN_SUBVOLUME_ID = '?'
+    __UNKNOWN_SUBVOLUME_ID = "?"
 
     def __init__(self, module):
         self.module = module
@@ -233,19 +240,23 @@ class BtrfsSubvolumeModule(object):
         self.__provider = BtrfsFilesystemsProvider(module)
 
         #  module parameters
-        name = self.module.params['name']
+        name = self.module.params["name"]
         self.__name = normalize_subvolume_path(name) if name is not None else None
-        self.__state = self.module.params['state']
+        self.__state = self.module.params["state"]
 
-        self.__automount = self.module.params['automount']
-        self.__default = self.module.params['default']
-        self.__filesystem_device = self.module.params['filesystem_device']
-        self.__filesystem_label = self.module.params['filesystem_label']
-        self.__filesystem_uuid = self.module.params['filesystem_uuid']
-        self.__recursive = self.module.params['recursive']
-        self.__snapshot_conflict = self.module.params['snapshot_conflict']
-        snapshot_source = self.module.params['snapshot_source']
-        self.__snapshot_source = normalize_subvolume_path(snapshot_source) if snapshot_source is not None else None
+        self.__automount = self.module.params["automount"]
+        self.__default = self.module.params["default"]
+        self.__filesystem_device = self.module.params["filesystem_device"]
+        self.__filesystem_label = self.module.params["filesystem_label"]
+        self.__filesystem_uuid = self.module.params["filesystem_uuid"]
+        self.__recursive = self.module.params["recursive"]
+        self.__snapshot_conflict = self.module.params["snapshot_conflict"]
+        snapshot_source = self.module.params["snapshot_source"]
+        self.__snapshot_source = (
+            normalize_subvolume_path(snapshot_source)
+            if snapshot_source is not None
+            else None
+        )
 
         # execution state
         self.__filesystem = None
@@ -258,6 +269,7 @@ class BtrfsSubvolumeModule(object):
         error = None
         try:
             self.__load_filesystem()
+            raise BtrfsModuleException("filesystem: %s " % str(self.__filesystem))
             self.__prepare_unit_of_work()
 
             if not self.module.check_mode:
@@ -274,14 +286,15 @@ class BtrfsSubvolumeModule(object):
             self.__cleanup_mounts()
             if self.__filesystem is not None:
                 self.__filesystem.refresh_mountpoints()
-
+        if error:
+            return (error, {})
         return (error, self.get_results())
 
     # Identify the targeted filesystem and obtain the current state
     def __load_filesystem(self):
         if self.__has_filesystem_criteria():
-            filesystem = self.__find_matching_filesytem()
-        else:
+            filesystem = self.__find_matching_filesystem()
+        elif (filesystem := self.__find_filesystem_for_path(self.__name)) is None:
             filesystem = self.__find_default_filesystem()
 
         # The filesystem must be mounted to obtain the current state (subvolumes, default, etc)
@@ -289,25 +302,34 @@ class BtrfsSubvolumeModule(object):
             if not self.__automount:
                 raise BtrfsModuleException(
                     "Target filesystem uuid=%s is not currently mounted and automount=False."
-                    "Mount explicitly before module execution or pass automount=True" % filesystem.uuid)
+                    "Mount explicitly before module execution or pass automount=True"
+                    % filesystem.uuid
+                )
             elif self.module.check_mode:
                 # TODO is failing the module an appropriate outcome in this scenario?
                 raise BtrfsModuleException(
                     "Target filesystem uuid=%s is not currently mounted. Unable to validate the current"
-                    "state while running with check_mode=True" % filesystem.uuid)
+                    "state while running with check_mode=True" % filesystem.uuid
+                )
             else:
-                self.__mount_subvolume_id_to_tempdir(filesystem, self.__BTRFS_ROOT_SUBVOLUME_ID)
+                self.__mount_subvolume_id_to_tempdir(
+                    filesystem, self.__BTRFS_ROOT_SUBVOLUME_ID
+                )
                 filesystem.refresh()
         self.__filesystem = filesystem
 
     def __has_filesystem_criteria(self):
-        return self.__filesystem_uuid is not None or self.__filesystem_label is not None or self.__filesystem_device is not None
+        return (
+            self.__filesystem_uuid is not None
+            or self.__filesystem_label is not None
+            or self.__filesystem_device is not None
+        )
 
-    def __find_matching_filesytem(self):
+    def __find_matching_filesystem(self):
         criteria = {
-            'uuid': self.__filesystem_uuid,
-            'label': self.__filesystem_label,
-            'device': self.__filesystem_device,
+            "uuid": self.__filesystem_uuid,
+            "label": self.__filesystem_label,
+            "device": self.__filesystem_device,
         }
         return self.__provider.get_matching_filesystem(criteria)
 
@@ -327,11 +349,54 @@ class BtrfsSubvolumeModule(object):
         else:
             raise BtrfsModuleException(
                 "Failed to automatically identify targeted filesystem. "
-                "No explicit device indicated and found %d available filesystems." % len(filesystems)
+                "No explicit device indicated and found %d available filesystems."
+                % len(filesystems)
             )
+
+    def __find_filesystem_for_path(self, name):
+        # type: (str) -> BtrfsFilesystem | None
+        """
+        Find a Btrfs filesystem based on self.__name that is the mandatory 'name' param
+        of the Ansible action. In case another filesystem (e.g. ext4) has been mounted
+        on a mountpoint in btrfs filesystem, this method naively assumes paths under
+        the mounted filesystem are inside the parent btrfs filesystem
+
+        returns: a BtrfsFileSystem object in case a matchin Btrfs filesystem is found or None
+        """
+        # get_filesystems() calls plugins.module_utils.btrfs.BtrfsInfoProvider.get_filesystems()
+        # that returns btrfs filesystems only based on ´btrfs filesystem show -d´ command
+
+        if name is None:
+            raise ValueError("__find_filesystem_for_path(): 'name' is None")
+        name = os.path.realpath(name)
+        res = None  # type: BtrfsFilesystem | None
+
+        longest_match = 0  # type: int
+        filesystems = self.__provider.get_filesystems()  # type: list[BtrfsFilesystem]
+
+        for filesystem in filesystems:
+            for mountpoints in filesystem.mountpoints.values():
+                for mp in mountpoints:
+                    match_len = len(os.path.commonpath([name, mp]))
+                    if match_len > longest_match:
+                        if match_len == 1 and mp != os.sep:
+                            continue
+                        longest_match = match_len
+                        res = filesystem
+        if res is not None:
+            pass
+            # raise BtrfsModuleException(
+            #     f"BtrfsSubvolumeModule.__find_filesystem_for_path(): filesystem={res.label}, mountpoints={res.mountpoints}"
+            # )
+        else:
+            raise BtrfsModuleException(
+                "BtrfsSubvolumeModule.__find_filesystem_for_path(): no filesystem found"
+            )
+        return res
 
     # Prepare unit of work
     def __prepare_unit_of_work(self):
+        # type: () -> None
         if self.__state == "present":
             if self.__snapshot_source is None:
                 self.__prepare_subvolume_present()
@@ -344,6 +409,7 @@ class BtrfsSubvolumeModule(object):
             self.__prepare_subvolume_absent()
 
     def __prepare_subvolume_present(self):
+        # type: () -> None
         subvolume = self.__filesystem.get_subvolume_by_name(self.__name)
         if subvolume is None:
             self.__prepare_before_create_subvolume(self.__name)
@@ -366,7 +432,9 @@ class BtrfsSubvolumeModule(object):
                 self.__stage_create_subvolume(current, True)
 
     def __prepare_snapshot_present(self):
-        source_subvolume = self.__filesystem.get_subvolume_by_name(self.__snapshot_source)
+        source_subvolume = self.__filesystem.get_subvolume_by_name(
+            self.__snapshot_source
+        )
         subvolume = self.__filesystem.get_subvolume_by_name(self.__name)
         subvolume_exists = subvolume is not None
 
@@ -375,10 +443,15 @@ class BtrfsSubvolumeModule(object):
                 # No change required
                 return
             elif self.__snapshot_conflict == "error":
-                raise BtrfsModuleException("Target subvolume=%s already exists and snapshot_conflict='error'" % self.__name)
+                raise BtrfsModuleException(
+                    "Target subvolume=%s already exists and snapshot_conflict='error'"
+                    % self.__name
+                )
 
         if source_subvolume is None:
-            raise BtrfsModuleException("Source subvolume %s does not exist" % self.__snapshot_source)
+            raise BtrfsModuleException(
+                "Source subvolume %s does not exist" % self.__snapshot_source
+            )
         elif subvolume is not None and source_subvolume.id == subvolume.id:
             raise BtrfsModuleException("Snapshot source and target are the same.")
         else:
@@ -400,19 +473,29 @@ class BtrfsSubvolumeModule(object):
         if subvolume.is_filesystem_root():
             raise BtrfsModuleException("Can not delete the filesystem's root subvolume")
         if not self.__recursive and len(subvolume.get_child_subvolumes()) > 0:
-            raise BtrfsModuleException("Subvolume targeted for deletion %s has children and recursive=False."
-                                       "Either explicitly delete the child subvolumes first or pass "
-                                       "parameter recursive=True." % subvolume.path)
+            raise BtrfsModuleException(
+                "Subvolume targeted for deletion %s has children and recursive=False."
+                "Either explicitly delete the child subvolumes first or pass "
+                "parameter recursive=True." % subvolume.path
+            )
 
         self.__stage_required_mount(subvolume.get_parent_subvolume())
-        queue = self.__prepare_recursive_delete_order(subvolume) if self.__recursive else [subvolume]
+        queue = (
+            self.__prepare_recursive_delete_order(subvolume)
+            if self.__recursive
+            else [subvolume]
+        )
         # prepare unit of work
         for s in queue:
             if s.is_mounted():
                 # TODO potentially unmount the subvolume if automount=True ?
-                raise BtrfsModuleException("Can not delete mounted subvolume=%s" % s.path)
+                raise BtrfsModuleException(
+                    "Can not delete mounted subvolume=%s" % s.path
+                )
             if s.is_filesystem_default():
-                self.__stage_set_default_subvolume(self.__BTRFS_ROOT_SUBVOLUME, self.__BTRFS_ROOT_SUBVOLUME_ID)
+                self.__stage_set_default_subvolume(
+                    self.__BTRFS_ROOT_SUBVOLUME, self.__BTRFS_ROOT_SUBVOLUME_ID
+                )
             self.__stage_delete_subvolume(s)
 
     def __prepare_recursive_delete_order(self, subvolume):
@@ -439,7 +522,10 @@ class BtrfsSubvolumeModule(object):
             if self.__automount:
                 self.__required_mounts.append(subvolume)
             else:
-                raise BtrfsModuleException("The requested changes will require the subvolume '%s' to be mounted, but automount=False" % subvolume.path)
+                raise BtrfsModuleException(
+                    "The requested changes will require the subvolume '%s' to be mounted, but automount=False"
+                    % subvolume.path
+                )
 
     def __stage_create_subvolume(self, subvolume_path, intermediate=False):
         """
@@ -447,74 +533,88 @@ class BtrfsSubvolumeModule(object):
         If intermediate is true, the action will be skipped if a directory like file is found at target
         after mounting a parent subvolume
         """
-        self.__unit_of_work.append({
-            'action': self.__CREATE_SUBVOLUME_OPERATION,
-            'target': subvolume_path,
-            'intermediate': intermediate,
-        })
+        self.__unit_of_work.append(
+            {
+                "action": self.__CREATE_SUBVOLUME_OPERATION,
+                "target": subvolume_path,
+                "intermediate": intermediate,
+            }
+        )
 
     def __stage_create_snapshot(self, source_subvolume, target_subvolume_path):
         """Add creation of a snapshot from source to target to the unit of work"""
-        self.__unit_of_work.append({
-            'action': self.__CREATE_SNAPSHOT_OPERATION,
-            'source': source_subvolume.path,
-            'source_id': source_subvolume.id,
-            'target': target_subvolume_path,
-        })
+        self.__unit_of_work.append(
+            {
+                "action": self.__CREATE_SNAPSHOT_OPERATION,
+                "source": source_subvolume.path,
+                "source_id": source_subvolume.id,
+                "target": target_subvolume_path,
+            }
+        )
 
     def __stage_delete_subvolume(self, subvolume):
         """Add deletion of the target subvolume to the unit of work"""
-        self.__unit_of_work.append({
-            'action': self.__DELETE_SUBVOLUME_OPERATION,
-            'target': subvolume.path,
-            'target_id': subvolume.id,
-        })
+        self.__unit_of_work.append(
+            {
+                "action": self.__DELETE_SUBVOLUME_OPERATION,
+                "target": subvolume.path,
+                "target_id": subvolume.id,
+            }
+        )
 
     def __stage_set_default_subvolume(self, subvolume_path, subvolume_id=None):
         """Add update of the filesystem's default subvolume to the unit of work"""
-        self.__unit_of_work.append({
-            'action': self.__SET_DEFAULT_SUBVOLUME_OPERATION,
-            'target': subvolume_path,
-            'target_id': subvolume_id,
-        })
+        self.__unit_of_work.append(
+            {
+                "action": self.__SET_DEFAULT_SUBVOLUME_OPERATION,
+                "target": subvolume_path,
+                "target_id": subvolume_id,
+            }
+        )
 
     # Execute the unit of work
     def __execute_unit_of_work(self):
         self.__check_required_mounts()
         for op in self.__unit_of_work:
-            if op['action'] == self.__CREATE_SUBVOLUME_OPERATION:
+            if op["action"] == self.__CREATE_SUBVOLUME_OPERATION:
                 self.__execute_create_subvolume(op)
-            elif op['action'] == self.__CREATE_SNAPSHOT_OPERATION:
+            elif op["action"] == self.__CREATE_SNAPSHOT_OPERATION:
                 self.__execute_create_snapshot(op)
-            elif op['action'] == self.__DELETE_SUBVOLUME_OPERATION:
+            elif op["action"] == self.__DELETE_SUBVOLUME_OPERATION:
                 self.__execute_delete_subvolume(op)
-            elif op['action'] == self.__SET_DEFAULT_SUBVOLUME_OPERATION:
+            elif op["action"] == self.__SET_DEFAULT_SUBVOLUME_OPERATION:
                 self.__execute_set_default_subvolume(op)
             else:
-                raise ValueError("Unknown operation type '%s'" % op['action'])
+                raise ValueError("Unknown operation type '%s'" % op["action"])
 
     def __execute_create_subvolume(self, operation):
-        target_mounted_path = self.__filesystem.get_mountpath_as_child(operation['target'])
+        target_mounted_path = self.__filesystem.get_mountpath_as_child(
+            operation["target"]
+        )
         if not self.__is_existing_directory_like(target_mounted_path):
             self.__btrfs_api.subvolume_create(target_mounted_path)
             self.__completed_work.append(operation)
 
     def __execute_create_snapshot(self, operation):
-        source_subvolume = self.__filesystem.get_subvolume_by_name(operation['source'])
+        source_subvolume = self.__filesystem.get_subvolume_by_name(operation["source"])
         source_mounted_path = source_subvolume.get_mounted_path()
-        target_mounted_path = self.__filesystem.get_mountpath_as_child(operation['target'])
+        target_mounted_path = self.__filesystem.get_mountpath_as_child(
+            operation["target"]
+        )
 
         self.__btrfs_api.subvolume_snapshot(source_mounted_path, target_mounted_path)
         self.__completed_work.append(operation)
 
     def __execute_delete_subvolume(self, operation):
-        target_mounted_path = self.__filesystem.get_mountpath_as_child(operation['target'])
+        target_mounted_path = self.__filesystem.get_mountpath_as_child(
+            operation["target"]
+        )
         self.__btrfs_api.subvolume_delete(target_mounted_path)
         self.__completed_work.append(operation)
 
     def __execute_set_default_subvolume(self, operation):
-        target = operation['target']
-        target_id = operation['target_id']
+        target = operation["target"]
+        target_id = operation["target_id"]
 
         if target_id is None:
             target_subvolume = self.__filesystem.get_subvolume_by_name(target)
@@ -524,17 +624,21 @@ class BtrfsSubvolumeModule(object):
                 target_subvolume = self.__filesystem.get_subvolume_by_name(target)
 
             if target_subvolume is None:
-                raise BtrfsModuleException("Failed to find existing subvolume '%s'" % target)
+                raise BtrfsModuleException(
+                    "Failed to find existing subvolume '%s'" % target
+                )
             else:
                 target_id = target_subvolume.id
 
-        self.__btrfs_api.subvolume_set_default(self.__filesystem.get_any_mountpoint(), target_id)
+        self.__btrfs_api.subvolume_set_default(
+            self.__filesystem.get_any_mountpoint(), target_id
+        )
         self.__completed_work.append(operation)
 
     def __is_existing_directory_like(self, path):
         return os.path.exists(path) and (
-            os.path.isdir(path) or
-            os.stat(path).st_ino == self.__BTRFS_SUBVOLUME_INODE_NUMBER
+            os.path.isdir(path)
+            or os.stat(path).st_ino == self.__BTRFS_SUBVOLUME_INODE_NUMBER
         )
 
     def __check_required_mounts(self):
@@ -550,7 +654,7 @@ class BtrfsSubvolumeModule(object):
         last = None
         ordered = sorted(subvolumes, key=lambda x: x.path)
         for next in ordered:
-            if last is None or not next.path[0:len(last)] == last:
+            if last is None or not next.path[0 : len(last)] == last:
                 filtered.append(next)
                 last = next.path
         return filtered
@@ -559,8 +663,11 @@ class BtrfsSubvolumeModule(object):
     def __mount_subvolume_id_to_tempdir(self, filesystem, subvolid):
         # this check should be redundant
         if self.module.check_mode or not self.__automount:
-            raise BtrfsModuleException("Unable to temporarily mount required subvolumes"
-                                       "with automount=%s and check_mode=%s" % (self.__automount, self.module.check_mode))
+            raise BtrfsModuleException(
+                "Unable to temporarily mount required subvolumes"
+                "with automount=%s and check_mode=%s"
+                % (self.__automount, self.module.check_mode)
+            )
 
         cache_key = "%s:%d" % (filesystem.uuid, subvolid)
         # The subvolume was already mounted, so return the current path
@@ -590,19 +697,21 @@ class BtrfsSubvolumeModule(object):
 
     # Format and return results
     def get_results(self):
+        # if self.__filesystem is None:
+        #     raise BtrfsModuleException("No filesystem defined")
         target = self.__filesystem.get_subvolume_by_name(self.__name)
         return dict(
             changed=len(self.__completed_work) > 0,
             filesystem=self.__filesystem.get_summary(),
             modifications=self.__get_formatted_modifications(),
-            target_subvolume_id=(target.id if target is not None else None)
+            target_subvolume_id=(target.id if target is not None else None),
         )
 
     def __get_formatted_modifications(self):
         return [self.__format_operation_result(op) for op in self.__completed_work]
 
     def __format_operation_result(self, operation):
-        action_type = operation['action']
+        action_type = operation["action"]
         if action_type == self.__CREATE_SUBVOLUME_OPERATION:
             return self.__format_create_subvolume_result(operation)
         elif action_type == self.__CREATE_SNAPSHOT_OPERATION:
@@ -612,56 +721,78 @@ class BtrfsSubvolumeModule(object):
         elif action_type == self.__SET_DEFAULT_SUBVOLUME_OPERATION:
             return self.__format_set_default_subvolume_result(operation)
         else:
-            raise ValueError("Unknown operation type '%s'" % operation['action'])
+            raise ValueError("Unknown operation type '%s'" % operation["action"])
 
     def __format_create_subvolume_result(self, operation):
-        target = operation['target']
+        target = operation["target"]
         target_subvolume = self.__filesystem.get_subvolume_by_name(target)
-        target_id = target_subvolume.id if target_subvolume is not None else self.__UNKNOWN_SUBVOLUME_ID
+        target_id = (
+            target_subvolume.id
+            if target_subvolume is not None
+            else self.__UNKNOWN_SUBVOLUME_ID
+        )
         return "Created subvolume '%s' (%s)" % (target, target_id)
 
     def __format_create_snapshot_result(self, operation):
-        source = operation['source']
-        source_id = operation['source_id']
+        source = operation["source"]
+        source_id = operation["source_id"]
 
-        target = operation['target']
+        target = operation["target"]
         target_subvolume = self.__filesystem.get_subvolume_by_name(target)
-        target_id = target_subvolume.id if target_subvolume is not None else self.__UNKNOWN_SUBVOLUME_ID
-        return "Created snapshot '%s' (%s) from '%s' (%s)" % (target, target_id, source, source_id)
+        target_id = (
+            target_subvolume.id
+            if target_subvolume is not None
+            else self.__UNKNOWN_SUBVOLUME_ID
+        )
+        return "Created snapshot '%s' (%s) from '%s' (%s)" % (
+            target,
+            target_id,
+            source,
+            source_id,
+        )
 
     def __format_delete_subvolume_result(self, operation):
-        target = operation['target']
-        target_id = operation['target_id']
+        target = operation["target"]
+        target_id = operation["target_id"]
         return "Deleted subvolume '%s' (%s)" % (target, target_id)
 
     def __format_set_default_subvolume_result(self, operation):
-        target = operation['target']
-        if 'target_id' in operation:
-            target_id = operation['target_id']
+        target = operation["target"]
+        if "target_id" in operation:
+            target_id = operation["target_id"]
         else:
             target_subvolume = self.__filesystem.get_subvolume_by_name(target)
-            target_id = target_subvolume.id if target_subvolume is not None else self.__UNKNOWN_SUBVOLUME_ID
+            target_id = (
+                target_subvolume.id
+                if target_subvolume is not None
+                else self.__UNKNOWN_SUBVOLUME_ID
+            )
         return "Updated default subvolume to '%s' (%s)" % (target, target_id)
 
 
 def run_module():
+    # type: () -> None
     module_args = dict(
-        automount=dict(type='bool', required=False, default=False),
-        default=dict(type='bool', required=False, default=False),
-        filesystem_device=dict(type='path', required=False),
-        filesystem_label=dict(type='str', required=False),
-        filesystem_uuid=dict(type='str', required=False),
-        name=dict(type='str', required=True),
-        recursive=dict(type='bool', default=False),
-        state=dict(type='str', required=False, default='present', choices=['present', 'absent']),
-        snapshot_source=dict(type='str', required=False),
-        snapshot_conflict=dict(type='str', required=False, default='skip', choices=['skip', 'clobber', 'error'])
+        automount=dict(type="bool", required=False, default=False),
+        default=dict(type="bool", required=False, default=False),
+        filesystem_device=dict(type="path", required=False),
+        filesystem_label=dict(type="str", required=False),
+        filesystem_uuid=dict(type="str", required=False),
+        name=dict(type="str", required=True),
+        recursive=dict(type="bool", default=False),
+        state=dict(
+            type="str", required=False, default="present", choices=["present", "absent"]
+        ),
+        snapshot_source=dict(type="str", required=False),
+        snapshot_conflict=dict(
+            type="str",
+            required=False,
+            default="skip",
+            choices=["skip", "clobber", "error"],
+        ),
     )
 
-    module = AnsibleModule(
-        argument_spec=module_args,
-        supports_check_mode=True
-    )
+    module = AnsibleModule(argument_spec=module_args, supports_check_mode=True)  # type: AnsibleModule
 
     subvolume = BtrfsSubvolumeModule(module)
     error, result = subvolume.run()
@@ -672,8 +803,9 @@ def run_module():
 
 
 def main():
+    # type: () -> None
     run_module()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
