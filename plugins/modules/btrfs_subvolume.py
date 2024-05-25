@@ -269,7 +269,7 @@ class BtrfsSubvolumeModule(object):
         error = None
         try:
             self.__load_filesystem()
-            raise BtrfsModuleException("filesystem: %s " % str(self.__filesystem))
+            # raise BtrfsModuleException("filesystem: %s " % str(self.__filesystem))
             self.__prepare_unit_of_work()
 
             if not self.module.check_mode:
