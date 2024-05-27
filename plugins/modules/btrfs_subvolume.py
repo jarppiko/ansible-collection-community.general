@@ -47,6 +47,12 @@ options:
         - Name of the subvolume/snapshot to be targeted.
         required: true
         type: str
+    is_path:
+        description: 
+        - Whether O(name) parameter is a filesystem path (true) or a subvolume path (false). 
+        - Default is false due to backwards compatibility
+        type: bool
+        default: false
     recursive:
         description:
         - When true, indicates that parent/child subvolumes should be created/removedas necessary
