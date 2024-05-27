@@ -7,6 +7,7 @@ from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
 from ansible.module_utils.common.text.converters import to_bytes  # type: ignore
+from ansible.module_utils.basic import AnsibleModule  # type: ignore
 import re
 import os
 
@@ -26,17 +27,71 @@ class BtrfsModuleException(Exception):
     pass
 
 
+class BtrfsMountpoint(object):
+    """
+    Class for Btrfs mountpoints
+
+    Created to avoid using untyped dicts. Could be refactored to @dataclass once
+    """
+
+    def __init__(
+        self,
+        mountpoint,  # type: str
+        device,  # type: str
+        subvolid,  # type: int
+        subvol,  # type: str
+    ):
+        # type: (...) -> None
+        """ "
+        Class for Btrfs mountpoints
+        """
+        self.__mountpoint = mountpoint  # type: str
+        self.__device = device  # type: str
+        self.__subvolid = subvolid  # type: int
+        self.__subvol = subvol  # type: str
+
+    @property
+    def path(self):
+        # type: (...) -> str
+        return self.__mountpoint
+
+    @property
+    def device(self):
+        # type: () -> str
+        return self.__device
+
+    @property
+    def subvolid(self):
+        # type: (...) -> int
+        return self.__subvolid
+
+    @property
+    def subvol(self):
+        # type: (...) -> str
+        return self.__subvol
+
+    def __str__(self):
+        # type: () -> str
+        return "[ mountpoint: %s, device: %s, subvolid: %d, subvol: %s ]" % (
+            self.__mountpoint,
+            self.__device,
+            self.__subvolid,
+            self.__subvol,
+        )
+
+
 class BtrfsCommands(object):
     """
     Provides access to a subset of the Btrfs command line
     """
 
     def __init__(self, module):
-        self.__module = module
-        self.__btrfs = self.__module.get_bin_path("btrfs", required=True)
+        # type: (AnsibleModule) -> None
+        self.__module = module  # type: AnsibleModule
+        self.__btrfs = self.__module.get_bin_path("btrfs", required=True)  # type: str
 
-    def filesystem_show(self):
-        # type: () -> list[dict[str, str | list[str] | None]]
+    def filesystem_show(self, provider):
+        # type: (BtrfsInfoProvider) -> list[BtrfsFilesystem]
         """
         Parses 'btrfs filesystem show -d' output into a list[dict[str, str | int | list[str] | None]]
 
@@ -58,47 +113,54 @@ class BtrfsCommands(object):
              {'label': 'HOME', 'uuid': '41658c57-0fce-4281-a1f5-649207d7d3de',
              'devices': ['/dev/mapper/sde', '/dev/mapper/sdd'], 'mountpoints': [], 'subvolumes': [], 'default_subvolid': None}]
         """
-        command = "%s filesystem show -d" % (self.__btrfs)
+        command = "%s filesystem show -d" % (self.__btrfs)  # type: str
         (rc, out, err) = self.__module.run_command(command, check_rc=True)  # type: tuple[int, str, str]
-        stdout = [x.strip() for x in out.splitlines()]
-        filesystems = []  # type: list[dict[str, str | list[str] | None]]
-        current = None
+        stdout = [x.strip() for x in out.splitlines()]  # type: list[str]
+        filesystems = []  # type: list[BtrfsFilesystem]
+        current = None  # type: BtrfsFilesystem | None
         for line in stdout:
             if line.startswith("Label"):
-                current = self.__parse_filesystem(line)
+                current = self.__parse_filesystem(line, provider)
                 filesystems.append(current)
-            elif line.startswith("devid"):
-                current["devices"].append(self.__parse_filesystem_device(line))  # type: ignore
+            elif line.startswith("devid") and current is not None:
+                current.devices.append(self.__parse_filesystem_device(line))
         return filesystems
 
-    def __parse_filesystem(self, line):
-        # type: (str) -> dict[str, str | list[str] | None]
-        label = re.sub(r"\s*uuid:.*$", "", re.sub(r"^Label:\s*", "", line))
-        id = re.sub(r"^.*uuid:\s*", "", line)
+    def __parse_filesystem(
+        self,
+        line,  # type: str
+        provider,  # type: BtrfsInfoProvider
+    ):
+        # type: (...) -> BtrfsFilesystem
+        label = re.sub(r"\s*uuid:.*$", "", re.sub(r"^Label:\s*", "", line))  # type: str
+        id = re.sub(r"^.*uuid:\s*", "", line)  # type: str
 
-        filesystem = {}  # type: dict[str, str | list[str] | None]
-        filesystem["label"] = label.strip("'") if label != "none" else None
-        filesystem["uuid"] = id
-        filesystem["devices"] = []
-        filesystem["mountpoints"] = []
-        filesystem["subvolumes"] = []
-        filesystem["default_subvolid"] = None
-        return filesystem
+        return BtrfsFilesystem(
+            provider=provider,
+            uuid=id,
+            label=label.strip("'") if label != "none" else None,
+        )
 
     def __parse_filesystem_device(self, line):
         # type: (str) -> str
         return re.sub(r"^.*path\s", "", line)
 
-    def subvolumes_list(self, filesystem_path):
-        # type: (str) -> list[dict[str, int | str | None]]
+    def subvolumes_list(self, filesystem):
+        # type: (BtrfsFilesystem) -> list[BtrfsSubvolume]
         """
         Returns a list of subvolumes as dicts with shape of {'id': int, 'parent': int | None, 'path': str }
 
         The "path" is subvolume path internal to the Btrfs filesystem, not VFS filesystem path
         """
+        mountpoint = filesystem.mountpoint  # type: BtrfsMountpoint | None
+        if mountpoint is None:
+            raise BtrfsModuleException(
+                "Cannot list subvolumes for unmounted Btrfs filesystem: UUID=%s"
+                % filesystem.uuid
+            )
         command = "%s subvolume list -tap %s" % (
             self.__btrfs,
-            filesystem_path,
+            mountpoint.path,
         )
         (rc, out, err) = self.__module.run_command(command, check_rc=True)  # type: tuple[int, str, str]
         if rc != 0:
@@ -106,7 +168,7 @@ class BtrfsCommands(object):
                 "'btrfs sbuvolume list' has non-zero exit value %i: %s" % (rc, str(err))
             )
         stdout = [x.split("\t") for x in out.splitlines()]  # type: list[list[str]]
-        subvolumes = [{"id": 5, "parent": None, "path": "/"}]  # type: list[dict[str, int | str | None]]
+        subvolumes = [{"id": 5, "parent": None, "path": "/"}]  # type: list[BtrfsSubvolume]
         if len(stdout) > 2:
             subvolumes.extend(
                 [self.__parse_subvolume_list_record(x) for x in stdout[2:]]  # type: ignore
@@ -166,12 +228,13 @@ class BtrfsInfoProvider(object):
     """
 
     def __init__(self, module):
-        self.__module = module
-        self.__btrfs_api = BtrfsCommands(module)
-        self.__findmnt_path = self.__module.get_bin_path("findmnt", required=True)
+        # type: (AnsibleModule) -> None
+        self.__module = module  # type: AnsibleModule
+        self.__btrfs_api = BtrfsCommands(module)  # type: BtrfsCommands
+        self.__findmnt_path = self.__module.get_bin_path("findmnt", required=True)  # type: str
 
     def get_filesystems(self):
-        # type: () -> list[dict[str, str | int | list[str] | None]]
+        # type: () -> list[BtrfsFilesystem]
         """
         Returns list[dict] of filesystems. Each filesystem is described by a dict with fields:
 
@@ -181,14 +244,14 @@ class BtrfsInfoProvider(object):
         "default_subvolid": int
 
         """
-        filesystems = self.__btrfs_api.filesystem_show()  # type: list[dict[str, str | int | list[str] | None]]
-        mountpoints = self.__find_mountpoints()
+        filesystems = self.__btrfs_api.filesystem_show(self)  # type: list[BtrfsFilesystem]
+        mountpoints = self.__find_mountpoints()  # type: list[BtrfsMountpoint]
         for filesystem in filesystems:
             device_mountpoints = self.__filter_mountpoints_for_devices(
                 mountpoints,
-                filesystem["devices"],  # type: ignore
+                filesystem.devices,
             )
-            filesystem["mountpoints"] = device_mountpoints  # type: ignore
+            filesystem.update_mountpoints(device_mountpoints)  # type: ignore
 
             if len(device_mountpoints) > 0:
                 # any path within the filesystem can be used to query metadata
@@ -201,6 +264,7 @@ class BtrfsInfoProvider(object):
         return filesystems
 
     def get_mountpoints(self, filesystem_devices):
+        # type: (list[str]) -> list[BtrfsMountpoint]
         mountpoints = self.__find_mountpoints()
         return self.__filter_mountpoints_for_devices(mountpoints, filesystem_devices)
 
@@ -219,39 +283,22 @@ class BtrfsInfoProvider(object):
         return self.__btrfs_api.subvolume_get_default(filesystem_path)
 
     def __filter_mountpoints_for_devices(self, mountpoints, devices):
-        # type: (list[dict[str, str | int]], list[str]) -> list[dict[str, str | int ]]
-        return [m for m in mountpoints if (m["device"] in devices)]
+        # type: (list[BtrfsMountpoint], list[str]) -> list[BtrfsMountpoint]
+        return [mp for mp in mountpoints if (mp.device in devices)]
 
     def __find_mountpoints(self):
-        # type: () -> list[dict[str, str | int]]
+        # type: () -> list[BtrfsMountpoint]
         """ "
         Parses Btrfs mountpoints from 'findmnt -t btrfs -nvP' output
 
-        Returns: list[dict]
-
-        The dict fields are:
-            "mountpoint": str
-            "device": str
-            "subvolid": int
-            "subvol": str
-
-        Example return value:
-
-            [
-                {'mountpoint': '/', 'device': '/dev/nvme0n1p4', 'subvolid': 266, 'subvol': '/@'},
-                {'mountpoint': '/mnt/db', 'device': '/dev/nvme0n1p5', 'subvolid': 5, 'subvol': '/'},
-                {'mountpoint': '/mnt/data', 'device': '/dev/mapper/sda', 'subvolid': 5, 'subvol': '/'},
-                {'mountpoint': '/home', 'device': '/dev/mapper/sde', 'subvolid': 5, 'subvol': '/'},
-                {'mountpoint': '/var/lib/containers/storage/overlay', 'device': '/dev/nvme0n1p4', 'subvolid': 266, 'subvol': '/@'}
-            ]
+        Returns: list[BtrfsMountpoint]
         """
-        command = "%s -t btrfs -nvP" % self.__findmnt_path
+        command = "%s -t btrfs -nvP" % self.__findmnt_path  # type: str
         (rc, out, err) = self.__module.run_command(command)  # type: tuple[int, str, str]
-        mountpoints = []  # type: list[dict[str, str | int]]
+        mountpoints = []  # type: list[BtrfsMountpoint]
         if rc == 0:
-            lines = out.splitlines()
-            for line in lines:
-                mountpoint = self.__parse_mountpoint_pairs(line)
+            for line in out.splitlines():
+                mountpoint = self.__parse_mountpoint_pairs(line)  # type: BtrfsMountpoint
                 mountpoints.append(mountpoint)
         else:
             raise BtrfsModuleException(
@@ -260,15 +307,11 @@ class BtrfsInfoProvider(object):
         return mountpoints
 
     def __parse_mountpoint_pairs(self, line):
-        # type: (str) -> dict[str, str | int]
+        # type: (str) -> BtrfsMountpoint
         """
         Parses mountpoint info from 'findmnt -t btrfs -nvP' output
 
-        Returns a dict[str, str | int] with fields:
-            "mountpoint": str
-            "device": str
-            "subvolid": int
-            "subvol": str
+        Returns BtrfsMountpoint
         """
         pattern = re.compile(
             r'^TARGET="(?P<target>.*)"\s+SOURCE="(?P<source>.*)"\s+FSTYPE="(?P<fstype>.*)"\s+OPTIONS="(?P<options>.*)"\s*$'
@@ -276,16 +319,22 @@ class BtrfsInfoProvider(object):
         match = pattern.search(line)  # type: re.Match | None
         if match is not None:
             groups = match.groupdict()
-            mount_options = self.__extract_mount_options(groups["options"])  # type: dict[str, str | int | None]
-            return {
-                "mountpoint": groups["target"],
-                "device": groups["source"],
-                "subvolid": int(mount_options["subvolid"]),  # type: ignore
-                "subvol": str(mount_options["subvol"]),
-            }
+            mount_options = self.__extract_mount_options(groups["options"])  # type: dict[str, str | None]
+            try:
+                return BtrfsMountpoint(
+                    mountpoint=groups["target"],
+                    device=groups["source"],
+                    subvolid=int(mount_options["subvolid"]),
+                    subvol=mount_options["subvol"],
+                )
+            except Exception as err:
+                raise BtrfsModuleException(
+                    "Failed to parse mountpoint from line: %s, Error: %s"
+                    % (line, str(err))
+                )
         else:
             raise BtrfsModuleException(
-                "Failed to parse findmnt result for line: '%s'" % line
+                "Failed to parse findmnt result for line: %s" % line
             )
 
     # replaced with __extract_mount_options()
@@ -298,17 +347,11 @@ class BtrfsInfoProvider(object):
     #     )
 
     def __extract_mount_options(self, mount_options):
-        # type: (str) -> dict[str, str | int  | None]
-        res = dict()  # type: dict[str, str | int | None]
+        # type: (str) -> dict[str, str | None]
+        res = dict()  # type: dict[str, str | None]
         for option in mount_options.split(","):
             param = option.split("=", maxsplit=1)
             res[param[0]] = param[1] if len(param) == 2 else None
-        if "subvolid" in res:
-            res["subvolid"] = int(res["subvolid"])  # type: ignore
-        else:
-            raise BtrfsModuleException(
-                "Failed to find subvolid for mountpoint in options '%s'" % mount_options
-            )
         return res
 
 
@@ -317,25 +360,47 @@ class BtrfsSubvolume(object):
     Wrapper class providing convenience methods for inspection of a btrfs subvolume
     """
 
-    def __init__(self, filesystem, subvolume_id):
-        # type: (BtrfsFilesystem, int) -> None
+    def __init__(
+        self,
+        filesystem,  # type: BtrfsFilesystem
+        subvol_id,  # type: int
+        subvol_path,  # type:  str
+        parent,  # type: int | None
+    ):
+        # type: (...) -> None
         self.__filesystem = filesystem
-        self.__subvolume_id = subvolume_id
+        self.__subvol_id = subvol_id
+        self.__subvol_path = subvol_path  # type: str
+        self.__parent = parent  # type: int | None
 
-    def get_filesystem(self):
+    @classmethod
+    def filesystem_root_subvolume(cls, filesystem):
+        # type: (BtrfsFilesystem) -> "BtrfsSubvolume"
+        return cls(filesystem=filesystem, subvol_id=5, subvol_path="/", parent=None)
+
+    @property
+    def filesystem(self):
+        # type: () -> BtrfsFilesystem
         return self.__filesystem
 
+    @property
     def is_mounted(self):
+        # type: () -> bool
         mountpoints = self.get_mountpoints()
         return mountpoints is not None and len(mountpoints) > 0
 
+    @property
     def is_filesystem_root(self):
-        return 5 == self.__subvolume_id
+        # type: () -> bool
+        return 5 == self.__subvol_id
 
+    @property
     def is_filesystem_default(self):
-        return self.__filesystem.default_subvolid == self.__subvolume_id
+        # type: () -> bool
+        return self.__filesystem.default_subvolid == self.__subvol_id
 
     def get_mounted_path(self):
+        # type: () -> str | None
         mountpoints = self.get_mountpoints()
         if mountpoints is not None and len(mountpoints) > 0:
             return mountpoints[0]
@@ -348,7 +413,8 @@ class BtrfsSubvolume(object):
             return None
 
     def get_mountpoints(self):
-        return self.__filesystem.get_mountpoints_by_subvolume_id(self.__subvolume_id)
+        # type: () -> list[BtrfsMountpoint]
+        return self.__filesystem.get_mountpoints_by_subvolume_id(self.__subvol_id)
 
     def get_child_relative_path(self, absolute_child_path):
         """
@@ -373,15 +439,15 @@ class BtrfsSubvolume(object):
         )
 
     def get_child_subvolumes(self):
-        return self.__filesystem.get_subvolume_children(self.__subvolume_id)
+        return self.__filesystem.get_subvolume_children(self.__subvol_id)
 
     @property
     def __info(self):
-        return self.__filesystem.get_subvolume_info_for_id(self.__subvolume_id)
+        return self.__filesystem.get_subvolume_info_for_id(self.__subvol_id)
 
     @property
     def id(self):
-        return self.__subvolume_id
+        return self.__subvol_id
 
     @property
     def name(self):
@@ -389,11 +455,13 @@ class BtrfsSubvolume(object):
 
     @property
     def path(self):
-        return self.__info["path"]
+        # type: () -> str
+        return self.__subvol_path
 
     @property
     def parent(self):
-        return self.__info["parent"]
+        # type: () -> int
+        return self.__parent
 
 
 class BtrfsFilesystem(object):
@@ -401,23 +469,30 @@ class BtrfsFilesystem(object):
     Wrapper class providing convenience methods for inspection of a btrfs filesystem
     """
 
-    def __init__(self, info, provider, module):
-        # type: (dict[str, str | int | list[str] | None], BtrfsInfoProvider, Any) -> None
+    def __init__(
+        self,
+        provider,  # type: BtrfsInfoProvider
+        uuid,  # type: str
+        label=None,  # type: str | None
+        default_subvolid=5,  # type: int
+        devices=[],  # type: list[str]
+        mountpoints=[],  # type: list[BtrfsMountpoint]
+        subvolumes=[],  # type: list[BtrfsSubvolume]
+    ):
+        # type: (...) -> None
         self.__provider = provider
 
         # constant for module execution
-        self.__uuid = info["uuid"]  # type: str
-        self.__label = info["label"]  # type: str
-        self.__devices = info["devices"]
-        self.__mountpoints = dict()  # type: dict[int, list[str]]
-        self.__subvolumes = dict()  # type: dict[str, int | str | None]
-        # refreshable
-        self.__default_subvolid = (
-            info["default_subvolid"] if "default_subvolid" in info else 5  # type: ignore
-        )  # type: int
+        self.__uuid = uuid  # type: str
+        self.__label = label  # type: str | None
+        self.__default_subvolid = default_subvolid  # type: int
+        self.__devices = devices  # type: list[str]
+        self.__mountpoints = dict()  # type: dict[int, list[BtrfsMountpoint]]
+        self.__subvolumes = dict()  # type: dict[int, BtrfsSubvolume]
 
-        self.__update_mountpoints(info["mountpoints"] if "mountpoints" in info else [])
-        self.__update_subvolumes(info["subvolumes"] if "subvolumes" in info else [])
+        # refreshable
+        self.update_mountpoints(mountpoints)
+        self.__update_subvolumes(subvolumes)
 
     @property
     def uuid(self):
@@ -426,7 +501,7 @@ class BtrfsFilesystem(object):
 
     @property
     def label(self):
-        # type: () -> str
+        # type: () -> str | None
         return self.__label
 
     @property
@@ -437,17 +512,35 @@ class BtrfsFilesystem(object):
     @property
     def devices(self):
         # type: () -> list[str]
-        return list(self.__devices)
+        return self.__devices
 
     @property
     def subvolumes(self):
-        # type: () -> dict[str, int | str | None]
+        # type: () -> dict[int, BtrfsSubvolume]
         return self.__subvolumes
 
     @property
     def mountpoints(self):
-        # type: () -> dict[int, list[str]]
+        # type: () -> dict[int, list[BtrfsMountpoint]]
         return self.__mountpoints
+
+    @property
+    def mountpoint(self):
+        # type: () -> BtrfsMountpoint | None
+        """
+        Returns a mountpoint that happens to be the first in the self.mountpoints
+        or None if no mountpoints found
+        """
+        try:
+            for mountpoints in self.mountpoints.values():
+                return mountpoints[0]
+        except IndexError:
+            pass
+        return None
+
+    def set_label(self, label):
+        # type: (str) -> None
+        self.__label = label
 
     def __str__(self):
         # type: () -> str
@@ -460,38 +553,44 @@ class BtrfsFilesystem(object):
         )
 
     def refresh(self):
+        # type: () -> None
         self.refresh_mountpoints()
         self.refresh_subvolumes()
         self.refresh_default_subvolume()
 
     def refresh_mountpoints(self):
-        mountpoints = self.__provider.get_mountpoints(list(self.__devices))
-        self.__update_mountpoints(mountpoints)
+        # type: () -> None
+        mountpoints = self.__provider.get_mountpoints(self.__devices)
+        self.update_mountpoints(mountpoints)
 
-    def __update_mountpoints(self, mountpoints):
-        # type: (list[dict[str, int |str | None]]) -> None
+    def update_mountpoints(
+        self,
+        mountpoints,  # type: list[BtrfsMountpoint]
+    ):
+        # type: (...) -> None
         self.__mountpoints = dict()
-        for i in mountpoints:
-            subvolid = i["subvolid"]
-            mountpoint = i["mountpoint"]
+        for mp in mountpoints:
+            subvolid = mp.subvolid  # type: int
             if subvolid not in self.__mountpoints:
                 self.__mountpoints[subvolid] = []
-            self.__mountpoints[subvolid].append(mountpoint)
+            self.__mountpoints[subvolid].append(mp)
 
     def refresh_subvolumes(self):
+        # type: () -> None
         filesystem_path = self.get_any_mountpoint()
         if filesystem_path is not None:
             subvolumes = self.__provider.get_subvolumes(filesystem_path)
             self.__update_subvolumes(subvolumes)
 
     def __update_subvolumes(self, subvolumes):
-        # type: (list[dict[str, int | str | None]]) -> None
+        # type: (list[BtrfsSubvolume]) -> None
         # TODO strategy for retaining information on deleted subvolumes?
         self.__subvolumes = dict()
         for subvolume in subvolumes:
-            self.__subvolumes[subvolume["id"]] = subvolume  # type: ignore
+            self.__subvolumes[subvolume.id] = subvolume
 
     def refresh_default_subvolume(self):
+        # type: () -> None
         filesystem_path = self.get_any_mountpoint()
         if filesystem_path is not None:
             self.__default_subvolid = self.__provider.get_default_subvolume_id(
@@ -556,6 +655,7 @@ class BtrfsFilesystem(object):
         return None
 
     def get_any_mountpoint(self):
+        # type: () -> BtrfsMountpoint | None
         for subvol_mountpoints in self.__mountpoints.values():
             if len(subvol_mountpoints) > 0:
                 return subvol_mountpoints[0]
@@ -570,7 +670,7 @@ class BtrfsFilesystem(object):
 
     # FIXME: no mountpoints returned for ROOT FS
     def get_mountpoints_by_subvolume_id(self, subvolume_id):
-        # type: (int) -> list[str]
+        # type: (int) -> list[BtrfsMountpoint]
         # raise BtrfsModuleException(
         #     f"BtrfsFilesystem.get_mountpoints_by_subvolume_id(): label: {self.label}, subvol_id: {subvolume_id}, mountpoints: {self.mountpoints}"
         # )
@@ -660,9 +760,10 @@ class BtrfsFilesystemsProvider(object):
     """
 
     def __init__(self, module):
-        self.__module = module
+        # type: (AnsibleModule) -> None
+        self.__module = module  # type: AnsibleModule
         self.__provider = BtrfsInfoProvider(module)
-        self.__filesystems = None
+        self.__filesystems = None  # type: dict[str, BtrfsFilesystem] | None
 
     def get_matching_filesystem(self, criteria):
         # type: (dict[str, Any]) -> None
@@ -715,8 +816,5 @@ class BtrfsFilesystemsProvider(object):
         # type: () -> None
         if self.__filesystems is None:
             self.__filesystems = dict()
-            for f in self.__provider.get_filesystems():
-                uuid = f["uuid"]
-                self.__filesystems[uuid] = BtrfsFilesystem(
-                    f, self.__provider, self.__module
-                )
+            for fs in self.__provider.get_filesystems():
+                self.__filesystems[fs.uuid] = fs
