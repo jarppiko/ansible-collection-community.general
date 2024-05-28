@@ -371,20 +371,20 @@ class BtrfsSubvolume(object):
         parent,  # type: int | None
     ):
         # type: (...) -> None
-        self.__filesystem = filesystem
-        self.__subvol_id = subvol_id
-        self.__subvol_path = subvol_path  # type: str
-        self.__parent = parent  # type: int | None
+        self._filesystem = filesystem
+        self._subvol_id = subvol_id
+        self._subvol_path = subvol_path  # type: str
+        self._parent = parent  # type: int | None
 
     @classmethod
-    def filesystem_root_subvolume(cls, filesystem):
+    def get_root_subvolume(cls, filesystem):
         # type: (BtrfsFilesystem) -> "BtrfsSubvolume"
         return cls(filesystem=filesystem, subvol_id=5, subvol_path="/", parent=None)
 
     @property
     def filesystem(self):
         # type: () -> BtrfsFilesystem
-        return self.__filesystem
+        return self._filesystem
 
     @property
     def is_mounted(self):
@@ -395,29 +395,60 @@ class BtrfsSubvolume(object):
     @property
     def is_filesystem_root(self):
         # type: () -> bool
-        return 5 == self.__subvol_id
+        return 5 == self._subvol_id
 
     @property
     def is_filesystem_default(self):
         # type: () -> bool
-        return self.__filesystem.default_subvolid == self.__subvol_id
+        return self._filesystem.default_subvolid == self._subvol_id
+
+    @property
+    def __info(self):
+        return self._filesystem.get_subvolume_info_for_id(self._subvol_id)
+
+    @property
+    def id(self):
+        return self._subvol_id
+
+    @property
+    def name(self):
+        return self.path.split("/").pop()
+
+    @property
+    def path(self):
+        # type: () -> str
+        return self._subvol_path
+
+    @property
+    def parent(self):
+        # type: () -> int | None
+        return self._parent
+
+    def __str__(self) -> str:
+        return "id: %d, path: %s, parent: %s" % (
+            self._subvol_id,
+            self._subvol_path,
+            str(self._parent) if self._parent is not None else "-",
+        )
 
     def get_mounted_path(self):
-        # type: () -> str | None
+        # type: () -> BtrfsMountpoint | None
+        """
+        Return BtrfsMountpoint of the BtrfsSubvolume or its parent subvolume.
+        Returns None if not mountpoint found
+        """
         mountpoints = self.get_mountpoints()
-        if mountpoints is not None and len(mountpoints) > 0:
+        if len(mountpoints) > 0:
             return mountpoints[0]
         elif self.parent is not None:
-            parent = self.__filesystem.get_subvolume_by_id(self.parent)
-            parent_path = parent.get_mounted_path()
-            if parent_path is not None:
-                return parent_path + os.path.sep + self.name
+            parent = self._filesystem.get_subvolume_by_id(self.parent)
+            return parent.get_mounted_path() if parent is not None else None
         else:
             return None
 
     def get_mountpoints(self):
         # type: () -> list[BtrfsMountpoint]
-        return self.__filesystem.get_mountpoints_by_subvolume_id(self.__subvol_id)
+        return self._filesystem.get_mountpoints_by_subvolume_id(self._subvol_id)
 
     def get_child_relative_path(self, absolute_child_path):
         """
@@ -434,37 +465,14 @@ class BtrfsSubvolume(object):
             )
 
     def get_parent_subvolume(self):
-        parent_id = self.parent
-        return (
-            self.__filesystem.get_subvolume_by_id(parent_id)
-            if parent_id is not None
-            else None
-        )
+        # type: () -> BtrfsSubvolume | None
+        if self._parent is not None:
+            return self._filesystem.get_subvolume_by_id(self._parent)
+        else:
+            return None
 
     def get_child_subvolumes(self):
-        return self.__filesystem.get_subvolume_children(self.__subvol_id)
-
-    @property
-    def __info(self):
-        return self.__filesystem.get_subvolume_info_for_id(self.__subvol_id)
-
-    @property
-    def id(self):
-        return self.__subvol_id
-
-    @property
-    def name(self):
-        return self.path.split("/").pop()
-
-    @property
-    def path(self):
-        # type: () -> str
-        return self.__subvol_path
-
-    @property
-    def parent(self):
-        # type: () -> int
-        return self.__parent
+        return self._filesystem.get_subvolume_children(self._subvol_id)
 
 
 class BtrfsFilesystem(object):
