@@ -617,7 +617,7 @@ class BtrfsFilesystem(object):
     def get_subvolume_by_id(self, subvolume_id):
         # type: (int) -> BtrfsSubvolume | None
         return (
-            BtrfsSubvolume(self, subvolume_id)
+            self.__subvolumes[subvolume_id]
             if subvolume_id in self.__subvolumes
             else None
         )
