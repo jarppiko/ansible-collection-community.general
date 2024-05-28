@@ -167,24 +167,27 @@ class BtrfsCommands(object):
             raise BtrfsModuleException(
                 "'btrfs sbuvolume list' has non-zero exit value %i: %s" % (rc, str(err))
             )
-        stdout = [x.split("\t") for x in out.splitlines()]  # type: list[list[str]]
-        subvolumes = [{"id": 5, "parent": None, "path": "/"}]  # type: list[BtrfsSubvolume]
-        if len(stdout) > 2:
+        subvolumes = [BtrfsSubvolume.get_root_subvolume(filesystem)]  # type: list[BtrfsSubvolume]
+        lines = out.splitlines()  # type: list[str]
+        if len(lines) > 2:
             subvolumes.extend(
-                [self.__parse_subvolume_list_record(x) for x in stdout[2:]]  # type: ignore
+                [
+                    self.__parse_subvolume_list_record(filesystem, line)
+                    for line in lines[2:]
+                ]
             )
-        # raise BtrfsModuleException(
-        #     f"fs path: {filesystem_path}, subvolumes: {subvolumes}"
-        # )
+
         return subvolumes
 
-    def __parse_subvolume_list_record(self, item):
-        # type: (list[str]) -> dict[str, int | str]
-        return {
-            "id": int(item[0]),
-            "parent": int(item[2]),
-            "path": normalize_subvolume_path(item[5]),
-        }
+    def __parse_subvolume_list_record(self, filesystem, line):
+        # type: (BtrfsFilesystem, str) -> BtrfsSubvolume
+        item = line.split("\t")  # type: list[str]
+        return BtrfsSubvolume(
+            filesystem=filesystem,
+            subvol_id=int(item[0]),
+            subvol_path=normalize_subvolume_path(item[5]),
+            parent=int(item[2]),
+        )
 
     def subvolume_get_default(self, filesystem_path):
         # type: (str) -> int
