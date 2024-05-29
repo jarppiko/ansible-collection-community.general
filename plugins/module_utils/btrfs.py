@@ -38,8 +38,8 @@ class BtrfsMountpoint(object):
         self,
         mountpoint,  # type: str
         device,  # type: str
-        subvolid,  # type: int
-        subvol,  # type: str
+        subvolume_id,  # type: int
+        subvolume_path,  # type: str
     ):
         # type: (...) -> None
         """ "
@@ -47,8 +47,8 @@ class BtrfsMountpoint(object):
         """
         self.__path = mountpoint  # type: str
         self.__device = device  # type: str
-        self.__subvolid = subvolid  # type: int
-        self.__subvol = subvol  # type: str
+        self.__subvolid = subvolume_id  # type: int
+        self.__subvol = subvolume_path  # type: str
 
     @property
     def path(self):
@@ -66,7 +66,7 @@ class BtrfsMountpoint(object):
         return self.__subvolid
 
     @property
-    def subvol(self):
+    def subvolume_path(self):
         # type: (...) -> str
         return self.__subvol
 
@@ -357,8 +357,8 @@ class BtrfsInfoProvider(object):
                 return BtrfsMountpoint(
                     mountpoint=groups["target"],
                     device=groups["source"],
-                    subvolid=int(subvolid),
-                    subvol=subvol,
+                    subvolume_id=int(subvolid),
+                    subvolume_path=subvol,
                 )
             except Exception as err:
                 raise BtrfsModuleException(
