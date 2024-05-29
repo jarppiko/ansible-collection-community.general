@@ -399,12 +399,14 @@ class BtrfsSubvolume(object):
         subvol_id,  # type: int
         subvol_path,  # type:  str
         parent,  # type: int | None
+        mountpoints=[],  # type: list[BtrfsMountpoint]
     ):
         # type: (...) -> None
-        self._filesystem = filesystem
-        self._subvol_id = subvol_id
-        self._subvol_path = subvol_path  # type: str
+        self._filesystem = filesystem  # type: BtrfsFilesystem
+        self._id = subvol_id  # type: int
+        self._path = subvol_path  # type: str
         self._parent = parent  # type: int | None
+        self._mountpoints = mountpoints  # type: list[BtrfsMountpoint]
 
     @classmethod
     def get_root_subvolume(cls, filesystem):
@@ -419,26 +421,25 @@ class BtrfsSubvolume(object):
     @property
     def is_mounted(self):
         # type: () -> bool
-        mountpoints = self.get_mountpoints()
-        return mountpoints is not None and len(mountpoints) > 0
+        return len(self.mountpoints) > 0
 
     @property
     def is_filesystem_root(self):
         # type: () -> bool
-        return 5 == self._subvol_id
+        return 5 == self._id
 
     @property
     def is_filesystem_default(self):
         # type: () -> bool
-        return self._filesystem.default_subvolid == self._subvol_id
+        return self._filesystem.default_subvolid == self._id
 
     @property
     def __info(self):
-        return self._filesystem.get_subvolume_info_for_id(self._subvol_id)
+        return self._filesystem.get_subvolume_info_for_id(self._id)
 
     @property
     def id(self):
-        return self._subvol_id
+        return self._id
 
     @property
     def name(self):
@@ -447,17 +448,35 @@ class BtrfsSubvolume(object):
     @property
     def path(self):
         # type: () -> str
-        return self._subvol_path
+        return self._path
 
     @property
     def parent(self):
         # type: () -> int | None
         return self._parent
 
+    @property
+    def mountpoints(self):
+        # type: () -> list[BtrfsMountpoint]
+        return self._mountpoints
+
+    def add_mountpoint(self, mountpoint):
+        # type: (BtrfsMountpoint) -> None
+        if mountpoint not in self._mountpoints:
+            self._mountpoints.append(mountpoint)
+
+    def remove_mountpoint(self, mountpoint):
+        # type: (BtrfsMountpoint) -> None
+        self._mountpoints = [
+            mp for mp in self._mountpoints if mp.subvolume_id != mountpoint.subvolume_id
+        ]
+
+    # TODO: complete mountpoints refactor
+
     def __str__(self) -> str:
         return "id: %d, path: %s, parent: %s" % (
-            self._subvol_id,
-            self._subvol_path,
+            self._id,
+            self._path,
             str(self._parent) if self._parent is not None else "-",
         )
 
@@ -478,7 +497,7 @@ class BtrfsSubvolume(object):
 
     def get_mountpoints(self):
         # type: () -> list[BtrfsMountpoint]
-        return self._filesystem.get_mountpoints_by_subvolume_id(self._subvol_id)
+        return self._filesystem.get_mountpoints_by_subvolume_id(self._id)
 
     def get_child_relative_path(self, absolute_child_path):
         """
@@ -502,7 +521,7 @@ class BtrfsSubvolume(object):
             return None
 
     def get_child_subvolumes(self):
-        return self._filesystem.get_subvolume_children(self._subvol_id)
+        return self._filesystem.get_subvolume_children(self._id)
 
 
 class BtrfsFilesystem(object):
@@ -628,6 +647,8 @@ class BtrfsFilesystem(object):
         # TODO strategy for retaining information on deleted subvolumes?
         self.__subvolumes = dict()
         for subvolume in subvolumes:
+            if subvolume.id in self.__mountpoints:
+                subvolume._mountpoints = self.__mountpoints[subvolume.id]
             self.__subvolumes[subvolume.id] = subvolume
 
     def update_default_subvolume_id(self, subvol_id):
