@@ -758,8 +758,22 @@ class BtrfsFilesystem(object):
             else None
         )
 
+    def __get_nearest_subvolum_by_path(self, root_subvolume, subvolume_path):
+        # type: (BtrfsSubvolume, str) -> BtrfsSubvolume | None
+        """
+        Returns BtrfsSubvolume with nearest subvolume path to the subvolume_path
 
-        return BtrfsSubvolume(self, 5)
+        Return None if subvolme_path is not under any BtrfsSubvolume
+        """
+        res = None  # type:  BtrfsSubvolume | None
+        max_match = 0  # type: int
+        for subvol in self.subvolumes.values():
+            match_len = len(os.path.commonpath([subvol.path, subvolume_path]))
+            if match_len > max_match:
+                res = subvol
+                max_match = match_len
+        return res
+
 
     def get_mountpath_as_child(self, subvolume_name):
         """Find a path to the target subvolume through a mounted ancestor"""
