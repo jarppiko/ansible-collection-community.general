@@ -442,10 +442,10 @@ class BtrfsSubvolume(object):
         # type: () -> bool
         return self._filesystem.default_subvolid == self._id
 
-    # TODO: Where is this needed?
-    @property
-    def __info(self):
-        return self._filesystem.get_subvolume_info_for_id(self._id)
+    # # TODO: Where is this needed?
+    # @property
+    # def __info(self):
+    #     return self._filesystem.get_subvolume_info_for_id(self._id)
 
     @property
     def id(self):
@@ -686,12 +686,13 @@ class BtrfsFilesystem(object):
             else None
         )
 
-    def get_subvolume_info_for_id(self, subvolume_id):
-        return (
-            self.__subvolumes[subvolume_id]
-            if subvolume_id in self.__subvolumes
-            else None
-        )
+    # def get_subvolume_info_for_id(self, subvolume_id):
+    #     # type: (int) ->
+    #     return (
+    #         self.__subvolumes[subvolume_id]
+    #         if subvolume_id in self.__subvolumes
+    #         else None
+    #     )
 
     # FIXME: takes subvolume path (as returned by btrfs subvol list -tap) as argument
     # that is internal Btrfs path, not filesystem path. However, the method is called
