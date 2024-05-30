@@ -749,32 +749,17 @@ class BtrfsFilesystem(object):
                 return self.get_subvolume_by_id(subvolid)
         return None
 
-    # FIXME: no mountpoints returned for ROOT FS
     def get_mountpoints_by_subvolume_id(self, subvolume_id):
-        # type: (int) -> list[BtrfsMountpoint]
+        # type: (int) -> list[BtrfsMountpoint] | None
         # raise BtrfsModuleException(
         #     f"BtrfsFilesystem.get_mountpoints_by_subvolume_id(): label: {self.label}, subvol_id: {subvolume_id}, mountpoints: {self.mountpoints}"
         # )
         return (
             self.__mountpoints[subvolume_id]
             if subvolume_id in self.__mountpoints
-            else []
+            else None
         )
 
-    # FIXME: this command is used to give filesystem path as 'subvolume',
-    # but the function assumes the argument is intra filesystem Btrfs path
-    # FIX logic
-    # - Find the mountpoint (again)
-    # - find the subvolume by eliminating the mountpoint's subvolume's path away from the subvol
-    #   path that is appended to the mountpoint
-    def get_nearest_subvolume(self, subvolume):
-        """Return the identified subvolume if existing, else the closest matching parent"""
-        subvolumes_by_path = self.__get_subvolumes_by_path()
-        while len(subvolume) > 1:
-            if subvolume in subvolumes_by_path:
-                return BtrfsSubvolume(self, subvolumes_by_path[subvolume]["id"])
-            else:
-                subvolume = re.sub(r"/[^/]+$", "", subvolume)
 
         return BtrfsSubvolume(self, 5)
 
