@@ -656,8 +656,6 @@ class BtrfsFilesystem(object):
         # TODO strategy for retaining information on deleted subvolumes?
         self.__subvolumes = dict()
         for subvolume in subvolumes:
-            if subvolume.id in self.__mountpoints:
-                subvolume._mountpoints = self.__mountpoints[subvolume.id]
             self.__subvolumes[subvolume.id] = subvolume
 
     def update_default_subvolume_id(self, subvol_id):
