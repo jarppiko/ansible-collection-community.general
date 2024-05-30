@@ -473,6 +473,20 @@ class BtrfsSubvolume(object):
             str(self._parent) if self._parent is not None else "-",
         )
 
+    def get_filesystem_path(self, mountpoint):
+        # type: (BtrfsMountpoint) -> str
+        mounted_subvol = self._filesystem.get_subvolume_by_id(mountpoint.subvolume_id)
+        if mounted_subvol is None:
+            raise BtrfsModuleException(
+                "Could not find subvolume id=%d" % (mountpoint.subvolume_id)
+            )
+        fs_path = replace_path_stem(self._path, mounted_subvol._path, mountpoint.path)
+        if fs_path != self._path:
+            return fs_path
+        raise BtrfsModuleException(
+            "Subvolume=%s is not under mounted subvolume=%s"
+            % (self.path, mounted_subvol.path)
+        )
 
     def get_mountpoint(self):
         # type: () -> BtrfsMountpoint | None
