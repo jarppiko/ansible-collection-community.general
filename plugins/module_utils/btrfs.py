@@ -697,7 +697,7 @@ class BtrfsFilesystem(object):
     # that is internal Btrfs path, not filesystem path. However, the method is called
     # from BtrfsSubvolumeModule methods assuming the "path" is a filesystem path
     # TODO: review btrfs_subvolume functions calling get_subvolume_by_subvolpath()
-    def get_subvolume_by_subvolpath(self, subvol_path):
+    def get_subvolume_by_subvol_path(self, subvol_path):
         # type: (str) -> BtrfsSubvolume | None
         """
         Returns BtrfsSubvolume for a subvolume path as returned by
