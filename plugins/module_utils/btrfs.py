@@ -473,20 +473,21 @@ class BtrfsSubvolume(object):
             str(self._parent) if self._parent is not None else "-",
         )
 
-    def get_mounted_path(self):
+
+    def get_mountpoint(self):
         # type: () -> BtrfsMountpoint | None
         """
-        Return BtrfsMountpoint of the BtrfsSubvolume or its parent subvolume.
+        Return a BtrfsMountpoint of the BtrfsSubvolume or its parent subvolume.
         Returns None if not mountpoint found
         """
-        mountpoints = self.get_mountpoints()
-        if len(mountpoints) > 0:
+        mountpoints = self.get_mountpoints()  # type: list[BtrfsMountpoint] | None
+        if mountpoints is None:
+            if self.parent is not None:
+                parent = self._filesystem.get_subvolume_by_id(self.parent)
+                return parent.get_mountpoint() if parent is not None else None
+        elif len(mountpoints) > 0:
             return mountpoints[0]
-        elif self.parent is not None:
-            parent = self._filesystem.get_subvolume_by_id(self.parent)
-            return parent.get_mounted_path() if parent is not None else None
-        else:
-            return None
+        return None
 
     def get_mountpoints(self):
         # type: () -> list[BtrfsMountpoint]
