@@ -781,10 +781,11 @@ class BtrfsFilesystem(object):
             )
 
     def get_subvolume_children(self, subvolume_id):
+        # type: (int) -> list[BtrfsSubvolume]
         return [
-            BtrfsSubvolume(self, x["id"])
-            for x in self.__subvolumes.values()
-            if x["parent"] == subvolume_id
+            subvol
+            for subvol in self.__subvolumes.values()
+            if subvol.parent == subvolume_id
         ]
 
     def __get_subvolumes_by_path(self):
