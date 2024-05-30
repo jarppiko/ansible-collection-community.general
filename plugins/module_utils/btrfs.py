@@ -708,30 +708,28 @@ class BtrfsFilesystem(object):
                 return subvolume
         return None
 
-    # TODO: Work in progress
-    def get_subvolume_by_path(self, filesystem_path):
+    def get_subvolume_by_filesystem_path(self, filesystem_path):
         # type: (str) -> BtrfsSubvolume | None
         """
         Return BtrfsSubvolume for the filesystem path.
         Returns None if no matchin subvolume in the filesystem is found
         """
-        res = None  # type: BtrfsSubvolume | None
-        longest_match = 0  # type: int
-        mountpoint = None  # type: BtrfsMountpoint | None
-        for subvol, mountpoints in self.mountpoints.items():
-            for mp in mountpoints:
-                match_len = len(os.path.commonpath([filesystem_path, mp.path]))  # type: int
-                if match_len > longest_match:
-                    if match_len == 1 and mp != os.pathsep:
-                        continue
-                    mountpoint = mp
+
+        mountpoint = self.get_mountpoint_for_path(filesystem_path)  # type: BtrfsMountpoint | None
         if mountpoint is None:
             raise BtrfsModuleException(
                 "Could not find matching subvolume for path: %s " % filesystem_path
             )
+        root_subvol = self.get_subvolume_by_id(mountpoint.subvolume_id)  # type: BtrfsSubvolume | None
+        if root_subvol is None:
+            raise BtrfsModuleException(
+                "Could not find matching subvolume for path: %s " % filesystem_path
+            )
+        subvol_path = replace_path_stem(
+            filesystem_path, mountpoint.path, root_subvol.path
+        )
 
-        # TODO: find mountpoint and then find the subvol that matches the path - mountpoint
-        return None
+        return self.__get_nearest_subvolum_by_path(root_subvol, subvol_path)
 
     def get_any_mountpoint(self):
         # type: () -> BtrfsMountpoint | None
