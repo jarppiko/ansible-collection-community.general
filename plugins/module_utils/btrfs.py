@@ -676,8 +676,9 @@ class BtrfsFilesystem(object):
         # type: (str) -> bool
         return device in self.__devices
 
-    def contains_subvolume(self, subvolume):
-        return self.get_subvolume_by_subvolpath(subvolume) is not None
+    # # This is not used anywhere
+    # def contains_subvolume(self, subvolume):
+    #     return self.get_subvolume_by_subvol_path(subvolume) is not None
 
     def get_subvolume_by_id(self, subvolume_id):
         # type: (int) -> BtrfsSubvolume | None
