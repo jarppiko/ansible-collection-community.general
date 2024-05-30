@@ -409,14 +409,12 @@ class BtrfsSubvolume(object):
         subvol_id,  # type: int
         subvol_path,  # type:  str
         parent,  # type: int | None
-        mountpoints=[],  # type: list[BtrfsMountpoint]
     ):
         # type: (...) -> None
         self._filesystem = filesystem  # type: BtrfsFilesystem
         self._id = subvol_id  # type: int
         self._path = subvol_path  # type: str
         self._parent = parent  # type: int | None
-        self._mountpoints = mountpoints  # type: list[BtrfsMountpoint]
 
     @classmethod
     def mk_root_subvolume(cls, filesystem):
@@ -431,7 +429,8 @@ class BtrfsSubvolume(object):
     @property
     def is_mounted(self):
         # type: () -> bool
-        return len(self.mountpoints) > 0
+        mountpoints = self.get_mountpoints()
+        return mountpoints is not None and len(mountpoints) > 0
 
     @property
     def is_filesystem_root(self):
@@ -443,17 +442,19 @@ class BtrfsSubvolume(object):
         # type: () -> bool
         return self._filesystem.default_subvolid == self._id
 
+    # TODO: Where is this needed?
     @property
     def __info(self):
         return self._filesystem.get_subvolume_info_for_id(self._id)
 
     @property
     def id(self):
+        # type: () -> int
         return self._id
 
-    @property
-    def name(self):
-        return self.path.split("/").pop()
+    # @property
+    # def name(self):
+    #     return self.path.split(os.path.pathsep).pop()
 
     @property
     def path(self):
@@ -464,24 +465,6 @@ class BtrfsSubvolume(object):
     def parent(self):
         # type: () -> int | None
         return self._parent
-
-    @property
-    def mountpoints(self):
-        # type: () -> list[BtrfsMountpoint]
-        return self._mountpoints
-
-    def add_mountpoint(self, mountpoint):
-        # type: (BtrfsMountpoint) -> None
-        if mountpoint not in self._mountpoints:
-            self._mountpoints.append(mountpoint)
-
-    def remove_mountpoint(self, mountpoint):
-        # type: (BtrfsMountpoint) -> None
-        self._mountpoints = [
-            mp for mp in self._mountpoints if mp.subvolume_id != mountpoint.subvolume_id
-        ]
-
-    # TODO: complete mountpoints refactor
 
     def __str__(self) -> str:
         return "id: %d, path: %s, parent: %s" % (
