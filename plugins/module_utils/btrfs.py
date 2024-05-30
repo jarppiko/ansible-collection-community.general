@@ -774,23 +774,39 @@ class BtrfsFilesystem(object):
                 max_match = match_len
         return res
 
+    # # FIXME: this command is used to give filesystem path as 'subvolume',
+    # # but the function assumes the argument is intra filesystem Btrfs path
+    # # FIX logic
+    # # - Find the mountpoint (again)
+    # # - find the subvolume by eliminating the mountpoint's subvolume's path away from the subvol
+    # #   path that is appended to the mountpoint
+    # def get_nearest_subvolume(self, subvolume):
+    #     """Return the identified subvolume if existing, else the closest matching parent"""
+    #     subvolumes_by_path = self.__get_subvolumes_by_path()
+    #     while len(subvolume) > 1:
+    #         if subvolume in subvolumes_by_path:
+    #             return BtrfsSubvolume(self, subvolumes_by_path[subvolume]["id"])
+    #         else:
+    #             subvolume = re.sub(r"/[^/]+$", "", subvolume)
 
-    def get_mountpath_as_child(self, subvolume_name):
-        """Find a path to the target subvolume through a mounted ancestor"""
-        nearest = self.get_nearest_subvolume(subvolume_name)
-        if nearest.path == subvolume_name:
-            nearest = nearest.get_parent_subvolume()
-        if nearest is None or nearest.get_mounted_path() is None:
-            raise BtrfsModuleException(
-                "Failed to find a path '%s' through a mounted parent subvolume"
-                % subvolume_name
-            )
-        else:
-            return (
-                nearest.get_mounted_path()
-                + os.path.sep
-                + nearest.get_child_relative_path(subvolume_name)
-            )
+    #     return BtrfsSubvolume(self, 5)
+
+    # def get_mountpath_as_child(self, subvolume_name):
+    #     """Find a path to the target subvolume through a mounted ancestor"""
+    #     nearest = self.get_nearest_subvolume(subvolume_name)
+    #     if nearest.path == subvolume_name:
+    #         nearest = nearest.get_parent_subvolume()
+    #     if nearest is None or nearest.get_mounted_path() is None:
+    #         raise BtrfsModuleException(
+    #             "Failed to find a path '%s' through a mounted parent subvolume"
+    #             % subvolume_name
+    #         )
+    #     else:
+    #         return (
+    #             nearest.get_mounted_path()
+    #             + os.path.sep
+    #             + nearest.get_child_relative_path(subvolume_name)
+    #         )
 
     def get_subvolume_children(self, subvolume_id):
         # type: (int) -> list[BtrfsSubvolume]
