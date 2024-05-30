@@ -490,7 +490,7 @@ class BtrfsSubvolume(object):
         return None
 
     def get_mountpoints(self):
-        # type: () -> list[BtrfsMountpoint]
+        # type: () -> list[BtrfsMountpoint] | None
         return self._filesystem.get_mountpoints_by_subvolume_id(self._id)
 
     def get_child_relative_path(self, absolute_child_path):
@@ -515,6 +515,7 @@ class BtrfsSubvolume(object):
             return None
 
     def get_child_subvolumes(self):
+        # type: () -> list[BtrfsSubvolume]
         return self._filesystem.get_subvolume_children(self._id)
 
 
