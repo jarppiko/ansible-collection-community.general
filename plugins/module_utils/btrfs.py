@@ -741,6 +741,29 @@ class BtrfsFilesystem(object):
         # maybe error?
         return None
 
+    def get_mountpoint_for_path(self, filesystem_path):
+        # type: (str) -> BtrfsMountpoint | None
+        """
+        Return BtrfsMountpoint for a filesystem path under it.
+        Returns None if no matching Btrfs mountpoint is found
+        """
+
+        longest_match = 0  # type: int
+        mountpoint = None  # type: BtrfsMountpoint | None
+        for mountpoints in self.mountpoints.values():
+            for mp in mountpoints:
+                match_len = len(os.path.commonpath([filesystem_path, mp.path]))  # type: int
+                if match_len > longest_match:
+                    if match_len == 1 and mp != os.pathsep:
+                        continue
+                    mountpoint = mp
+                    if mountpoint.path == filesystem_path:
+                        break
+            else:
+                continue  # executed if the inner loop does not break
+            break  #  executed only if inner loop breaks
+        return mountpoint
+
     def get_any_mounted_subvolume(self):
         for subvolid, subvol_mountpoints in self.__mountpoints.items():
             if len(subvol_mountpoints) > 0:
