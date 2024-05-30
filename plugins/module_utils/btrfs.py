@@ -23,6 +23,16 @@ def normalize_subvolume_path(path):
     return result if len(result) > 0 else "/"
 
 
+def replace_path_stem(path, stem, replacement):
+    # type: (str, str, str) -> str
+    """
+    Replace the beginning of the path (=stem) with replacement
+
+    Return 'path' if no replacement is done
+    """
+    return os.path.normpath(re.sub(r"^" + stem, replacement + "/", path))
+
+
 class BtrfsModuleException(Exception):
     pass
 
