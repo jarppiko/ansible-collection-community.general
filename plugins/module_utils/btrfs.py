@@ -177,7 +177,7 @@ class BtrfsCommands(object):
             raise BtrfsModuleException(
                 "'btrfs sbuvolume list' has non-zero exit value %i: %s" % (rc, str(err))
             )
-        subvolumes = [BtrfsSubvolume.get_root_subvolume(filesystem)]  # type: list[BtrfsSubvolume]
+        subvolumes = [BtrfsSubvolume.mk_root_subvolume(filesystem)]  # type: list[BtrfsSubvolume]
         lines = out.splitlines()  # type: list[str]
         if len(lines) > 2:
             subvolumes.extend(
@@ -419,7 +419,7 @@ class BtrfsSubvolume(object):
         self._mountpoints = mountpoints  # type: list[BtrfsMountpoint]
 
     @classmethod
-    def get_root_subvolume(cls, filesystem):
+    def mk_root_subvolume(cls, filesystem):
         # type: (BtrfsFilesystem) -> "BtrfsSubvolume"
         return cls(filesystem=filesystem, subvol_id=5, subvol_path="/", parent=None)
 
